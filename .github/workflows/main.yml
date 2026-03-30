@@ -55,9 +55,9 @@ jobs:
         run: |
           $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
           $tunnel = $response.tunnels[0].public_url
-          $host = $tunnel -replace "tcp://", "" -split ":"
-          echo "NGROK_HOST=$($host[0])" >> $env:GITHUB_ENV
-          echo "NGROK_PORT=$($host[1])" >> $env:GITHUB_ENV
+          $parts = $tunnel -replace "tcp://", "" -split ":"
+          echo "NGROK_HOST=$($parts[0])" >> $env:GITHUB_ENV
+          echo "NGROK_PORT=$($parts[1])" >> $env:GITHUB_ENV
           Write-Host "Tunnel: $tunnel"
 
       - name: Maintain Connection
@@ -69,7 +69,7 @@ jobs:
           Write-Host "Username : RDP"
           Write-Host "Password : $env:RDP_PASS"
           Write-Host "==========================================="
-          Write-Host "Di app RDP: isi PC name dengan -> $env:NGROK_HOST`:$env:NGROK_PORT"
+          Write-Host "Di app RDP isi PC name: $env:NGROK_HOST`:$env:NGROK_PORT"
           while ($true) {
               Write-Host "[$(Get-Date)] RDP Active"
               Start-Sleep -Seconds 300
