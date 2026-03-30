@@ -1,0 +1,76 @@
+name: RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Configure Core RDP Settings
+        shell: powershell
+        run: |
+          reg add "HKLM\System\CurrentControlSet\Control\Terminal Server" /v fDenyTSConnections /t REG_DWORD /d 0 /f
+          reg add "HKLM\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v UserAuthentication /t REG_DWORD /d 0 /f
+          reg add "HKLM\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v SecurityLayer /t REG_DWORD /d 0 /f
+          Set-Service -Name TermService -StartupType Automatic
+          Start-Service -Name TermService
+          Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Enabled True
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389
+          Write-Host "TermService: $((Get-Service TermService).Status)"
+
+      - name: Create RDP User
+        shell: powershell
+        run: |
+          $charSet = @{
+              Upper   = [char[]](65..90)
+              Lower   = [char[]](97..122)
+              Number  = [char[]](48..57)
+          }
+          $rawPassword = @()
+          $rawPassword += $charSet.Upper | Get-Random -Count 4
+          $rawPassword += $charSet.Lower | Get-Random -Count 4
+          $rawPassword += $charSet.Number | Get-Random -Count 4
+          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+          Write-Host "User RDP created, password: $password"
+
+      - name: Install & Start ngrok
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "$env:TEMP\ngrok.zip"
+          Expand-Archive "$env:TEMP\ngrok.zip" -DestinationPath "C:\ngrok"
+          C:\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          Start-Process "C:\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -WindowStyle Hidden
+          Start-Sleep -Seconds 5
+
+      - name: Get ngrok URL
+        shell: powershell
+        run: |
+          $response = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
+          $tunnel = $response.tunnels[0].public_url
+          $host = $tunnel -replace "tcp://", "" -split ":"
+          echo "NGROK_HOST=$($host[0])" >> $env:GITHUB_ENV
+          echo "NGROK_PORT=$($host[1])" >> $env:GITHUB_ENV
+          Write-Host "Tunnel: $tunnel"
+
+      - name: Maintain Connection
+        shell: powershell
+        run: |
+          Write-Host "================ RDP ACCESS ================"
+          Write-Host "Address  : $env:NGROK_HOST"
+          Write-Host "Port     : $env:NGROK_PORT"
+          Write-Host "Username : RDP"
+          Write-Host "Password : $env:RDP_PASS"
+          Write-Host "==========================================="
+          Write-Host "Di app RDP: isi PC name dengan -> $env:NGROK_HOST`:$env:NGROK_PORT"
+          while ($true) {
+              Write-Host "[$(Get-Date)] RDP Active"
+              Start-Sleep -Seconds 300
+          }
